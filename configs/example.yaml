@@ -1,0 +1,74 @@
+# Example node-configurator config. Every field is optional: omit a field
+# (or this whole file) to use the computed default for the detected EC2
+# instance. Copy to /etc/node-configurator/config.yaml and edit as needed.
+
+# Never mutate anything; `check` always behaves this way regardless of this
+# setting. For `apply`, dryRun downgrades it to check-mode behavior too.
+dryRun: false
+
+# "text" (default, human-readable) or "json" (one array of results, for log
+# aggregation / CI). Overridden by --log-format if passed on the CLI.
+logFormat: text
+
+resources:
+  # Resource names to skip entirely, e.g. if CPU governor control conflicts
+  # with a site-wide power-management policy. See `node-configurator check`
+  # output for the exact names available on your instances.
+  disable: []
+  # - cpu-governor
+
+sysctl:
+  # Merged on top of the computed sysctl map, highest precedence. Use this
+  # for anything not covered by a more specific section below.
+  overrides: {}
+  # net.ipv4.tcp_congestion_control: bbr
+
+limits:
+  # 0 (or omitted) keeps the computed default (1048576). Applies to both
+  # /etc/security/limits.d (PAM/interactive sessions) and a systemd
+  # LimitNOFILE drop-in for containerd/kubelet/cilium (systemd services
+  # don't go through PAM, so they need the drop-in separately).
+  nofile: 0
+  nproc: 0
+
+hugePages:
+  # 2M hugepages are runtime-settable via vm.nr_hugepages; disabled by
+  # default since most general-purpose Kubernetes nodes don't need them.
+  # 1G hugepages require a kernel command-line change and are out of scope
+  # for a tool that never reboots the node.
+  enabled: false
+  count2M: 0
+
+cilium:
+  # This fleet runs Cilium kube-proxy-free in eBPF mode by default: no
+  # nf_conntrack/br_netfilter/ip_vs modules are loaded, and no bridge-nf
+  # sysctls are set. Only change these if your Cilium install does not
+  # match that default.
+  tunnelMode: "" # "", "vxlan", or "geneve" -- "" assumes native/ENI routing
+  legacyIPTables: false # true only if Cilium is configured with --enable-iptables-rules
+
+network:
+  # Omit a key (or set the whole `network:` section) to keep the computed
+  # default; each key here is an explicit true/false override.
+  # irqAffinity: true
+  # ringBufferMax: true
+  # rps: true
+  # xps: true
+
+storage:
+  # Omit to keep the computed default ("none"). Set to "" to disable
+  # scheduler management entirely.
+  # ioScheduler: none
+
+cpu:
+  # Omit to keep the computed default ("performance"). Set to "" to disable
+  # governor management entirely.
+  # governor: performance
+
+facts:
+  # How long cached EC2 instance facts remain valid. An instance's
+  # type/vCPUs/memory/network don't change during its lifetime barring a
+  # stop/modify-instance-type/start cycle, so the default (empty/omitted)
+  # never expires the cache -- use --refresh-facts to force a re-query
+  # after such a resize.
+  cacheTTL: ""

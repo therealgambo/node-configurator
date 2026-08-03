@@ -1,0 +1,47 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # "standard" = errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    - gosec     # security-focused static analysis
+    - bodyclose # unclosed HTTP response bodies
+    - unconvert # unnecessary type conversions
+    - unparam   # unused function parameters
+    - misspell  # comment/string typos
+  settings:
+    gosec:
+      # See .github/workflows/security.yml for why these are excluded here
+      # too:
+      #  - G204/G304/G703 fire on every call in internal/sysutil and
+      #    internal/resource by design (rooted-filesystem paths for test
+      #    isolation, and external commands built from our own computed
+      #    profile rather than raw external input) -- gosec's taint
+      #    tracker can't see that these paths never originate from
+      #    untrusted external/network input.
+      #  - G301/G306 want 0750/0600; this tool's entire job is writing
+      #    world-readable system config under /etc and /sys (sysctl.d,
+      #    modules-load.d, limits.d, fstab) with the standard 0644/0755
+      #    every other file in those directories uses -- these are not
+      #    secrets.
+      excludes:
+        - G204
+        - G304
+        - G703
+        - G301
+        - G306
+  exclusions:
+    paths:
+      - bin
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/therealgambo/node-configurator

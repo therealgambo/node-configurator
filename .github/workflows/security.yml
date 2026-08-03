@@ -1,0 +1,65 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 4 * * 1' # Monday 04:00 UTC -- catches newly-disclosed CVEs even without a code change
+
+permissions:
+  contents: read
+
+jobs:
+  gosec:
+    name: gosec (SAST)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+
+      # G204 (subprocess launched with a variable), G304 (file access with
+      # a variable path), and G703 (taint-tracked path traversal) fire on
+      # essentially every call in internal/sysutil and internal/resource
+      # by design: every resource reads/writes a path built from a
+      # configurable filesystem root (for test isolation, see
+      # internal/sysutil.Env) and every external command
+      # (modprobe/ethtool/mount/swapoff/systemctl) is invoked with
+      # arguments computed from our own instance profile -- gosec's taint
+      # tracker can't see that these never originate from untrusted
+      # external/network input. G301/G306 want 0750/0600 directory/file
+      # permissions; this tool's job is writing world-readable system
+      # config under /etc and /sys with the standard 0644/0755 every other
+      # file there uses -- not secrets. Excluding these keeps this scan
+      # signal (real findings), not noise from a reviewed pattern.
+      - name: Run gosec
+        run: gosec -no-fail -exclude=G204,G304,G703,G301,G306 -fmt sarif -out results.sarif ./...
+
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
+
+  govulncheck:
+    name: govulncheck (known vulnerabilities)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go.mod

@@ -1,0 +1,25 @@
+[Unit]
+Description=node-configurator: EC2 kernel/network/perf tuning for Kubernetes nodes
+Documentation=https://github.com/therealgambo/node-configurator
+DefaultDependencies=no
+After=local-fs.target network-online.target
+Wants=network-online.target
+# containerd/kubelet are systemd units on every node; cilium.service only
+# exists if Cilium is run as a host-level systemd service instead of (the
+# far more common) Kubernetes DaemonSet. Ordering against a unit name that
+# isn't installed is a harmless no-op, so it's safe to list here
+# unconditionally as a hedge. In the DaemonSet case, ordering before
+# kubelet.service is sufficient: Cilium can't be scheduled before kubelet
+# exists anyway.
+Before=containerd.service kubelet.service cilium.service sys-fs-bpf.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/node-configurator apply --config /etc/node-configurator/config.yaml
+TimeoutStartSec=90
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
