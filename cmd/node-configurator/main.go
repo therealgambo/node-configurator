@@ -156,6 +156,20 @@ func runEngine(args []string, mode engine.Mode) int {
 		fmt.Fprintf(os.Stderr, "node-configurator: warning: %s\n", w)
 	}
 
+	format := resolveLogFormat(cf, cfg)
+
+	// Print what was discovered before anything is touched, so there's a
+	// record of the pre-change state even if a later resource fails
+	// partway through converging. JSON mode instead folds facts into the
+	// single combined document written at the end, so machine consumers
+	// still get exactly one parseable value out of stdout.
+	if format != "json" {
+		if err := engine.WriteFactsSummary(os.Stdout, f); err != nil {
+			fmt.Fprintf(os.Stderr, "node-configurator: %v\n", err)
+			return 1
+		}
+	}
+
 	// cfg.DryRun downgrades an `apply` run to check-mode behavior; `check`
 	// itself is already always read-only regardless of this setting.
 	if cfg.DryRun && mode == engine.ModeApply {
@@ -170,8 +184,8 @@ func runEngine(args []string, mode engine.Mode) int {
 
 	results := engine.Run(ctx, resources, mode)
 
-	if resolveLogFormat(cf, cfg) == "json" {
-		if err := engine.WriteJSONReport(os.Stdout, results); err != nil {
+	if format == "json" {
+		if err := engine.WriteJSONReport(os.Stdout, f, results); err != nil {
 			fmt.Fprintf(os.Stderr, "node-configurator: %v\n", err)
 			return 1
 		}
