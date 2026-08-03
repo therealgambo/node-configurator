@@ -151,7 +151,13 @@ func (r *NICResource) ringBufferDrift(ctx context.Context) (string, error) {
 func (r *NICResource) applyRingBufferMax(ctx context.Context) error {
 	out, err := r.Runner.Run(ctx, "ethtool", "-g", r.Interface)
 	if err != nil {
-		return fmt.Errorf("ethtool -g %s: %w", r.Interface, err)
+		// Same tolerance as ringBufferDrift in Check: ethtool missing, or
+		// the driver not supporting ring queries, isn't a failure -- it's
+		// this NIC not offering the feature. Apply is only reached because
+		// *some* NIC feature (possibly RPS/XPS, not ring buffers) drifted,
+		// so this step must degrade gracefully rather than failing the
+		// whole resource.
+		return nil
 	}
 	rp := parseEthtoolRingParams(out)
 

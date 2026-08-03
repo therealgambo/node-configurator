@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -101,6 +102,40 @@ func TestNICResourceRPSAppliesMaskToQueues(t *testing.T) {
 	}
 	if string(data) != cpumaskAll(4) {
 		t.Fatalf("expected rps_cpus=%s, got %s", cpumaskAll(4), data)
+	}
+}
+
+// TestNICResourceApplyToleratesUnsupportedRingQuery guards against a real
+// bug: a NIC driver that doesn't support ring-buffer queries (or a host
+// with no ethtool binary at all -- common on a virtualized CI runner's
+// virtio/hv_netvsc NIC) must not fail the whole resource when Apply runs
+// because RPS/XPS had real drift to fix.
+func TestNICResourceApplyToleratesUnsupportedRingQuery(t *testing.T) {
+	env := newTestEnv(t)
+	rxDir := env.Path("sys", "class", "net", "eth0", "queues", "rx-0")
+	writeFile(t, rxDir+"/rps_cpus", "0")
+
+	runner := &fakeRunner{errs: map[string]error{"ethtool": errors.New("Operation not supported")}}
+	r := &NICResource{Env: env, Runner: runner, Interface: "eth0", NumCPUs: 4, RingBufferMax: true, RPS: true}
+
+	res, err := r.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusWouldChange {
+		t.Fatalf("expected would_change from RPS drift, got %s (%s)", res.Status, res.Detail)
+	}
+
+	if err := r.Apply(context.Background()); err != nil {
+		t.Fatalf("expected Apply to tolerate an unsupported ethtool ring query, got error: %v", err)
+	}
+
+	data, err := os.ReadFile(rxDir + "/rps_cpus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != cpumaskAll(4) {
+		t.Fatalf("expected RPS to still be applied despite ethtool failing, got %s", data)
 	}
 }
 

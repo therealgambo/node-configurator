@@ -83,6 +83,63 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: go build -o /dev/null ./...
 
+  smoke-test:
+    name: Smoke test (apply on live runner)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build native binary
+        run: go build -o node-configurator ./cmd/node-configurator
+
+      - name: Install ethtool
+        run: sudo apt-get update && sudo apt-get install -y ethtool
+
+      # The GitHub-hosted runner is a real, ephemeral Linux VM: real
+      # /proc, /sys, systemd, swap, an actual NIC. This exercises genuine
+      # Check/Apply code paths (sysctl writes, swapoff, bpffs mount,
+      # RPS/XPS, ulimit drop-ins) that unit tests can only verify against a
+      # faked filesystem. It won't have ENA/NVMe hardware or real IMDS, so
+      # NIC-ring/IRQ/hugepages tuning and instance-aware sizing still won't
+      # be exercised for real -- see README for that gap. Running `apply`
+      # for real is safe here specifically because this VM is destroyed at
+      # the end of the job, unlike a developer's own machine.
+      - name: check (drift is expected on a fresh runner)
+        run: |
+          set +e
+          sudo ./node-configurator check
+          code=$?
+          set -e
+          echo "check exit code: $code"
+          # 0 = nothing to do, 2 = drift pending (expected here). 1 means a
+          # resource's Check itself failed -- a real problem.
+          if [ "$code" -eq 1 ]; then
+            echo "::error::node-configurator check reported a resource failure"
+            exit 1
+          fi
+
+      - name: apply (real convergence against this runner's live state)
+        run: sudo ./node-configurator apply
+
+      - name: re-check (must be a no-op -- idempotency)
+        run: |
+          set +e
+          sudo ./node-configurator check
+          code=$?
+          set -e
+          echo "post-apply check exit code: $code"
+          if [ "$code" -ne 0 ]; then
+            echo "::error::drift (or a failure) remained after apply already converged -- possible idempotency bug"
+            exit 1
+          fi
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

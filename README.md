@@ -122,7 +122,16 @@ That gives strong confidence in the decision logic (sysctl scaling
 formulas across representative instance types, merge/override precedence,
 idempotency of every resource, EC2 API response mapping) but **cannot**
 exercise real `/proc/sys` writes, real `modprobe`/`ethtool` invocations, or
-real IMDS/EC2 API calls. Before rolling out to production:
+real IMDS/EC2 API calls from macOS.
+
+CI's `smoke-test` job (`.github/workflows/ci.yml`) closes part of that gap:
+GitHub-hosted Linux runners are real, ephemeral VMs (not containers), so it
+builds the binary natively and runs `apply` for real against the runner's
+live `/proc`, `/sys`, `/etc`, and systemd — then runs `check` again
+afterwards and fails the job if anything still reports drift, catching
+idempotency bugs the fake-filesystem unit tests can't. It still can't
+exercise ENA/NVMe hardware, real IMDS, or instance-family-aware sizing —
+only a real EC2 instance can. Before rolling out to production:
 
 1. Run `node-configurator check` on a real EC2 instance of each family you
    care about and review the report
