@@ -55,7 +55,7 @@ func (r *SysctlResource) Apply(ctx context.Context) error {
 			continue
 		}
 		cur, err := r.Env.ReadSysctl(key)
-		if err == nil && cur == want {
+		if err == nil && normalizeSysctlValue(cur) == normalizeSysctlValue(want) {
 			continue
 		}
 		if err := r.Env.WriteSysctl(key, want); err != nil {
@@ -82,11 +82,21 @@ func (r *SysctlResource) diffLive() (drift, skipped []string, err error) {
 		if readErr != nil {
 			return nil, nil, fmt.Errorf("reading sysctl %s: %w", key, readErr)
 		}
-		if cur != want {
+		if normalizeSysctlValue(cur) != normalizeSysctlValue(want) {
 			drift = append(drift, fmt.Sprintf("%s: %q -> %q", key, cur, want))
 		}
 	}
 	return drift, skipped, nil
+}
+
+// normalizeSysctlValue collapses whitespace runs so multi-value sysctls
+// compare correctly against what the kernel echoes back. Found live: the
+// kernel always renders e.g. net.ipv4.tcp_rmem's three fields tab-separated
+// on read regardless of how they were written (we write them
+// space-separated), so a byte-exact comparison would report permanent
+// drift immediately after a successful apply.
+func normalizeSysctlValue(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func (r *SysctlResource) persistNeeded() bool {

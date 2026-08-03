@@ -23,6 +23,44 @@ func TestCpumaskAll(t *testing.T) {
 	}
 }
 
+// TestCPUMasksEqual guards against a real bug: a live kernel's rps_cpus/
+// xps_cpus read-back padded an extra all-zero 32-bit word onto what we'd
+// written (its canonical width reflects nr_cpu_ids/possible-CPUs, not just
+// the CPU count we're targeting), so a byte-exact string comparison
+// reported permanent drift immediately after a successful write.
+func TestCPUMasksEqual(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"0000000f", "0000000f", true},
+		{"0000000f", "00000000,0000000f", true}, // kernel-padded extra all-zero word
+		{"f", "0000000f", true},                 // unpadded vs zero-padded
+		{"0000000f", "0000001f", false},
+		{"", "0000000f", false},
+	}
+	for _, tc := range cases {
+		if got := cpuMasksEqual(tc.a, tc.b); got != tc.want {
+			t.Errorf("cpuMasksEqual(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+func TestNICResourceRPSTreatsKernelPaddedMaskAsUnchanged(t *testing.T) {
+	env := newTestEnv(t)
+	rxDir := env.Path("sys", "class", "net", "eth0", "queues", "rx-0")
+	writeFile(t, rxDir+"/rps_cpus", "00000000,0000000f")
+
+	r := &NICResource{Env: env, Runner: &fakeRunner{}, Interface: "eth0", NumCPUs: 4, RPS: true}
+	res, err := r.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusUnchanged {
+		t.Fatalf("expected unchanged (same bits, different padding width), got %s (%s)", res.Status, res.Detail)
+	}
+}
+
 const ethtoolRingOutput = `Ring parameters for eth0:
 Pre-set maximums:
 RX:		8192
