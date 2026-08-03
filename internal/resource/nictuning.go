@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -195,7 +197,7 @@ func (r *NICResource) queueMaskDrift(direction, attr string) ([]string, error) {
 		if err != nil {
 			continue
 		}
-		if strings.TrimSpace(cur) != want {
+		if !cpuMasksEqual(cur, want) {
 			drifted = append(drifted, path)
 		}
 	}
@@ -211,10 +213,18 @@ func (r *NICResource) applyQueueMask(direction, attr string) error {
 	for _, dir := range dirs {
 		path := filepath.Join(dir, attr)
 		cur, err := sysutil.ReadFileString(path)
-		if err == nil && strings.TrimSpace(cur) == want {
+		if err == nil && cpuMasksEqual(cur, want) {
 			continue
 		}
 		if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
+			if os.IsNotExist(err) {
+				// This queue directory exists but doesn't expose this
+				// particular steering attribute (seen on e.g. a bridge
+				// interface's queues, which have some but not all of the
+				// files a real multi-queue NIC's queues have) -- skip it
+				// rather than failing every other queue behind it.
+				continue
+			}
 			return fmt.Errorf("writing %s: %w", path, err)
 		}
 	}
@@ -247,4 +257,37 @@ func cpumaskAll(n int) string {
 		words[l], words[rr] = words[rr], words[l]
 	}
 	return strings.Join(words, ",")
+}
+
+// cpuMasksEqual compares two kernel cpumask strings for semantic equality
+// (same set bits), not literal string equality. Found live: a real kernel's
+// rps_cpus/xps_cpus read-back can pad with extra leading all-zero 32-bit
+// words beyond what we wrote (its canonical width is generally
+// nr_cpu_ids/possible-CPUs-based, not limited to the CPU count we're
+// targeting), so byte-exact comparison against what we wrote would report
+// permanent drift immediately after a successful write.
+func cpuMasksEqual(a, b string) bool {
+	return slices.Equal(parseCPUMaskBits(a), parseCPUMaskBits(b))
+}
+
+// parseCPUMaskBits parses a comma-separated, most-significant-word-first
+// hex cpumask (e.g. "0000000f" or "00000000,0000000f") into the sorted list
+// of set CPU numbers.
+func parseCPUMaskBits(s string) []int {
+	words := strings.Split(strings.TrimSpace(s), ",")
+	var bits []int
+	for i, word := range words {
+		v, err := strconv.ParseUint(word, 16, 32)
+		if err != nil {
+			continue
+		}
+		wordIdx := len(words) - 1 - i // words are MSB-first; the last word covers CPUs 0-31
+		for bit := range 32 {
+			if v&(1<<uint(bit)) != 0 {
+				bits = append(bits, wordIdx*32+bit)
+			}
+		}
+	}
+	sort.Ints(bits)
+	return bits
 }

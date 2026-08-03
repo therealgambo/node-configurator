@@ -18,10 +18,15 @@ type CiliumOptions struct {
 // needs before its agent starts. It does not configure Cilium itself.
 func applyCiliumPrereqs(p *Profile, opts CiliumOptions) {
 	p.Mounts = append(p.Mounts, MountSpec{
-		Name:         "bpffs-mount",
+		Name: "bpffs-mount",
+		// "bpffs" is only the conventional device/source label; the
+		// registered kernel filesystem type is "bpf" (confirmed against a
+		// real kernel: `mount -t bpffs ...` fails with "unknown
+		// filesystem type 'bpffs'", `mount -t bpf ...` is what both the
+		// mount(8) call and /proc/mounts's fstype column need).
 		Device:       "bpffs",
 		Path:         bpffsPath,
-		FSType:       "bpffs",
+		FSType:       "bpf",
 		Options:      "rw,nosuid,nodev,noexec,relatime",
 		FstabPersist: true,
 	})
