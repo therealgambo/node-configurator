@@ -16,6 +16,13 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    permissions:
+      # Job-level permissions replace (not add to) the workflow-level
+      # block above, so contents:read has to be repeated here for
+      # checkout to work.
+      contents: read
+      pull-requests: write
+      issues: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -56,6 +63,48 @@ jobs:
             coverage.html
             coverage-summary.txt
           retention-days: 30
+
+      # Edits the same comment on repeat pushes to a PR (matched via the
+      # hidden marker) instead of posting a new one every time.
+      # continue-on-error since a PR from a fork gets a read-only token by
+      # default -- a coverage comment failing to post shouldn't fail CI.
+      - name: Comment coverage on PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          marker="<!-- node-configurator-coverage-report -->"
+          # Built with individual `echo`s rather than a heredoc/multi-line
+          # string: this step's own source indentation (required by YAML)
+          # would otherwise end up embedded as leading whitespace in every
+          # line, turning the ``` fences into indented (not fenced)
+          # markdown blocks.
+          {
+            echo "$marker"
+            echo "## Test coverage"
+            echo
+            echo '```'
+            tail -n 1 coverage-summary.txt
+            echo '```'
+            echo
+            echo "<details>"
+            echo "<summary>Per-function breakdown</summary>"
+            echo
+            echo '```'
+            cat coverage-summary.txt
+            echo '```'
+            echo "</details>"
+          } > /tmp/coverage-comment.md
+
+          existing_id=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
+
+          if [ -n "$existing_id" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing_id" -F body=@/tmp/coverage-comment.md
+          else
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/coverage-comment.md
+          fi
 
   build:
     name: Cross-compile (linux/${{ matrix.goarch }})
