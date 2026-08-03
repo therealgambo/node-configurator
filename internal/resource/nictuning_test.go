@@ -105,6 +105,25 @@ func TestNICResourceRPSAppliesMaskToQueues(t *testing.T) {
 	}
 }
 
+// TestNICResourceApplyToleratesQueueMissingAttribute reproduces a real bug
+// found on a live CI runner: a bridge interface's tx queue directory
+// existed (so it matched the tx-* glob) but had no xps_cpus file at all
+// (unlike a real multi-queue NIC's queues), and the write failed the
+// entire resource instead of just skipping that one queue.
+func TestNICResourceApplyToleratesQueueMissingAttribute(t *testing.T) {
+	env := newTestEnv(t)
+	// tx-0 exists as a directory but deliberately has no xps_cpus file.
+	if err := os.MkdirAll(env.Path("sys", "class", "net", "eth0", "queues", "tx-0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &NICResource{Env: env, Runner: &fakeRunner{}, Interface: "eth0", NumCPUs: 4, XPS: true}
+
+	if err := r.Apply(context.Background()); err != nil {
+		t.Fatalf("expected Apply to tolerate a queue missing its attribute file, got error: %v", err)
+	}
+}
+
 // TestNICResourceApplyToleratesUnsupportedRingQuery guards against a real
 // bug: a NIC driver that doesn't support ring-buffer queries (or a host
 // with no ethtool binary at all -- common on a virtualized CI runner's

@@ -215,6 +215,14 @@ func (r *NICResource) applyQueueMask(direction, attr string) error {
 			continue
 		}
 		if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
+			if os.IsNotExist(err) {
+				// This queue directory exists but doesn't expose this
+				// particular steering attribute (seen on e.g. a bridge
+				// interface's queues, which have some but not all of the
+				// files a real multi-queue NIC's queues have) -- skip it
+				// rather than failing every other queue behind it.
+				continue
+			}
 			return fmt.Errorf("writing %s: %w", path, err)
 		}
 	}

@@ -145,12 +145,12 @@ func TestBuildAlwaysMountsBpffs(t *testing.T) {
 	p := Build(facts.Facts{VCPUs: 4, MemMiB: 16384}, Overrides{})
 	found := false
 	for _, m := range p.Mounts {
-		if m.Path == "/sys/fs/bpf" && m.FSType == "bpffs" {
+		if m.Path == "/sys/fs/bpf" && m.FSType == "bpf" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected bpffs mount at /sys/fs/bpf, got %+v", p.Mounts)
+		t.Errorf("expected bpf-fstype mount at /sys/fs/bpf, got %+v", p.Mounts)
 	}
 }
 
