@@ -77,9 +77,6 @@ systemctl daemon-reload
 systemctl enable --now node-configurator.service
 ```
 
-(`make install` does the same directly on a Linux host with this repo
-checked out, for local iteration.)
-
 ## CLI
 
 ```
